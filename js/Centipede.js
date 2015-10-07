@@ -5,7 +5,8 @@ var BOUND_PLAYER_HIGH = 432;
 var BOUND_PLAYER_LOW = 528;
 var RENDER_AREA_WIDTH = 512;
 var RENDER_AREA_HEIGHT = 544;
-var UPPER_BOUND_ID = 1, LOWER_BOUND_ID = 2, LEFT_BOUND_ID = 3, RIGHT_BOUND_ID = 4;
+var UPPER_BOUND_ID = 1, LOWER_BOUND_ID = 2,
+ LEFT_BOUND_ID = 3, RIGHT_BOUND_ID = 4;
 var TOUCH = Phaser.Device.touch;
 
 var game;
@@ -27,7 +28,7 @@ var allBoundariesX, allBoundariesY, leftBoundary, rightBoundary, upperBoundary, 
 var lives, score, score_disp, hi_score_disp, speed, wave, wave_offset,
     fire_button, cursors, touch, touch_button, mushrows, mush_array, rowHeight;
 // Timers
-var flea_timer, scorpion_timer, spider_timer, score_timer; // Timers
+var flea_timer, scorpion_timer, spider_timer, score_timer;
 
 
 // Set up assets.
@@ -39,13 +40,15 @@ function preload() {
 
 // Set up objects and groups and place the first centipede.
 function create(){
+  powersave_timer = 0;
+  enter_powersave = false;
   score_disp = game.add.bitmapText(game.width/8, 0, '2P', null, 16);
   hi_score_disp = game.add.bitmapText(game.width/2 - 20, 0, '2P', null, 16);
   mushrows = [];
   lives = 3;
   speed = 5;
   score = 0;
-  rowHeight = 4;
+  rowHeight = 16; //height of virtual "rows" for centipede movement
   score_disp.setText(score.toString());
   hi_score_disp.setText(16543);
   wave_offset = 0;
@@ -146,24 +149,19 @@ function create(){
 // Called 60(maybe?) times a second, the heartbeat of the game.
 function update(){
   game.physics.arcade.collide(player, mushrooms);
-  // game.physics.arcade.collide(centipedes, leftBoundary, hitWallX, null, this); //AEW
-  // game.physics.arcade.collide(centipedes, rightBoundary, hitWallX, null, this); //AEW
-  // game.physics.arcade.collide(centipedes, upperBoundary, hitWallY, null, this); //AEW
-  // game.physics.arcade.collide(centipedes, lowerBoundary, hitWallY, null, this); //AEW
   game.physics.arcade.collide(centipedes, allBoundariesY, hitWallY, null, this); //AEW
   game.physics.arcade.collide(centipedes, allBoundariesX, hitWallX, null, this); //AEW
-
   game.physics.arcade.collide(bolts, mushrooms, boltHitsMushroom, null, this);
-  game.physics.arcade.overlap(bolts, spider, boltHitsSpider, null, this); //added by AEW
+  game.physics.arcade.collide(bolts, centipedes, boltHitsCentipede, null, this); //added by AEW
+  game.physics.arcade.collide(bolts, spider, boltHitsSpider, null, this); //added by AEW //revert to collide if spider fails
   game.physics.arcade.collide(centipedes, mushrooms, centipedeHitsMushroom, null, this);
   game.physics.arcade.overlap(scorpion, mushrooms, scorpionHitsMushroom, null, this);
   // game.physics.arcade.collide(centipedes, player, playerDies, null, this);
   game.physics.arcade.overlap(flea, player, fleaHitsPlayer, null, this);
   game.physics.arcade.overlap(bolts, flea, boltHitsFlea, null, this);
   game.physics.arcade.overlap(bolts, scorpion, boltHitsScorpion, null, this);
-  game.physics.arcade.overlap(bolts, monsters.getGroup(), monsters.damage, null, this);
+  //game.physics.arcade.overlap(bolts, monsters.getGroup(), monsters.damage, null, this); //disabled by AEW
   player.body.velocity.setTo(0, 0);
-  score_disp.setText(score.toString()); //added by AEW
 
 
   // if ((game.input.x < 512) && (game.input.x > 0) && (game.input.y < 672) && (game.input.y > 0)){
@@ -182,6 +180,7 @@ function update(){
   //   fireBolt();
   // }
 
+
   if (cursors.left.isDown)
   {
     player.body.velocity.x = -PLAYER_SPEED;
@@ -190,6 +189,7 @@ function update(){
   {
     player.body.velocity.x = PLAYER_SPEED;
   }
+
   if (player.y >= BOUND_PLAYER_HIGH){
     if (cursors.up.isDown)
     {
@@ -202,12 +202,14 @@ function update(){
       player.body.velocity.y = PLAYER_SPEED;
     }
   }
+
   if (fire_button.isDown)
   {
     fireBolt();
   }
 
-  moveCentipede(centipede);
+  //check if we need to alter movement for each centipede segment
+  centipedes.forEachAlive(moveCentipede);
 
   if (scorpion){
     moveScorpion();
@@ -247,6 +249,15 @@ function touchButton(){
       ]
     }
   });
+}
+
+//Refresh the display of the score
+//optionally increment the score by a given amount then refresh display
+function refreshScore(addToScore){
+  if(addToScore){
+    score+=addToScore
+  }
+  score_disp.setText(score.toString());
 }
 
 /////////////////////////
@@ -309,6 +320,14 @@ function spawnMushrooms(){
   }
 }
 
+function spawnSingleMushroom(x, y){
+  console.log("Spawn single mushroom!");
+  var mushroom = mushrooms.create(x, y, 'atlas', 'mushroom00');
+  mushroom.body.immovable = true;
+  mushroom.hits = 0;
+  mushroom.poisoned = false;
+}
+
 // Should be responsible for placement/spawning of all monsters truly
 function MonsterManager(game){
     var monsters = [];
@@ -333,7 +352,7 @@ function MonsterManager(game){
     this.damage = function(object, creature){
       creature.death();
       //creature.damage(1); //commment by AEW: what will this do???
-      score += 75; //AEW
+      refreshScore(75); //AEW
       // as is, it causes a critical error "damage isn't a function"
     }
 }
@@ -423,8 +442,7 @@ function spawnSpider(monster){
 
   spider.onDeath(function(creature){
     creature.animations.play('die', 30, false, true);
-    score += 900;
-    score_disp.setText(score.toString());
+    refreshScore(900);
   });
   spider.set('state', true);
   spider.set('time', 0);
@@ -471,31 +489,46 @@ function spawnSpider(monster){
 }
 
 //make something with 12 body parts (including head) in total (to start)
+//successive levels turn into one fewer body part, but one more fast head
 //gives sprites some custom props; as suggested on a website, in the future,
 // "use sprite.hasOwnProperty('propname') to throw an error
 //    if sprite.propname is already defined"
 function spawnCentipede(x, y){
-  centipede = game.add.sprite(x, y, 'atlas', 'head00');
-  game.physics.enable(centipede, Phaser.Physics.ARCADE);
-  centipede.animations.add('move', Phaser.Animation.generateFrameNames('head', 0, 7, '', 2), 10, true);
-  centipede.animations.add('moveVert', Phaser.Animation.generateFrameNames('headdown', 0, 3, '', 2), 10, true);
-  centipede.animations.play('move');
-  centipede.anchor.setTo(0, 0);
-  centipede["direction"] = 1;
-  centipede["directionY"] = 1;
-  centipede.moveVertically = false;
-  centipede.iSpeed = 15 * speed;
-  centipede.lastX = x;
-  centipede.lastY = y;
-  centipede.yTraveled = 0;
-  centipede.layer = y;
-  centipede.body.velocity.x = centipede.iSpeed;
-  centipede.body.velocity.y = 0;
-  //centipede.body.collideWorldBounds = true;
-  //centipede.checkWorldBounds = true;
+  var previousCent = null;
+  var maxSegs = 12;
+  var spriteSize = 16;
+  for (seg = 0; seg < maxSegs; seg++){
+    centipede = game.add.sprite(x + (seg*(spriteSize+8)), y, 'atlas', 'head00');
+    game.physics.enable(centipede, Phaser.Physics.ARCADE);
+    centipede.animations.add('move', Phaser.Animation.generateFrameNames('head', 0, 7, '', 2), 10, true);
+    centipede.animations.add('moveVert', Phaser.Animation.generateFrameNames('headdown', 0, 3, '', 2), 10, true);
+    centipede.animations.play('move');
+    centipede.alive = true;
+    centipede.anchor.setTo(0, 0);
+    centipede["direction"] = 1;
+    centipede["directionY"] = 1;
+    centipede.moveVertically = false;
+    centipede.centSpeed = 16 * speed;
+    centipede.segAhead = previousCent;
+    if(previousCent != null){
+      previousCent.segBehind = centipede;
+    }
+    centipede.segBehind = null;
+    centipede.lastX = x;
+    centipede.lastY = y;
+    centipede.oldVelX = 0;
+    centipede.oldVelY = 0;
+    centipede.yTraveled = 0;
+    centipede.layer = y;
+    centipede.body.velocity.x = centipede.centSpeed;
+    centipede.body.velocity.y = 0;
+    centipede.idName = seg;
 
-  //add it to the "centipedes" group, with custom props intact
-  centipedes.add(centipede);
+
+    //add it to the "centipedes" group, with custom props intact
+    centipedes.add(centipede);
+    previousCent = centipede;
+  }
 }
 
 function spawnScorpion(){
@@ -553,41 +586,41 @@ function spawnHeadsFromBrokenCentipede(){
 /////////////////////////////
 
 function hitWallX(cent, wall){
-  if(wall){
+  /*if(wall){
     console.log("hitX :: WALL ID " + wall.idType); //AEW test
-    cent.direction *= -1;
   }
-  console.log("Hit a wall X; " + cent.x + " ...switch to y?");
+  console.log("Hit a wall X; " + cent.x + " ...switch to y?");*/
   cent.moveVertically = true;
   cent.animations.play('moveVert');
   cent.lastY = cent.y;
-  console.log("old x dir:: " + cent.direction);
+  /*console.log("old x dir:: " + cent.direction);
   console.log("new x dir:: " + cent.direction);
-  console.log(" SWITCH try move y");
+  console.log(" SWITCH try move y");*/
+  cent.direction *= -1; //always change direction if we encounter an X boundary
   cent.body.velocity.x = 0;
-  //cent.body.velocity.y = cent.iSpeed * cent.directionY;
-  cent.body.velocity.y = rowHeight;
-  console.log("centDirectionY :: " + cent.directionY + "spd" + speed);
-  console.log("y" + cent.body.velocity.y);
-  console.log(cent.numberG);
+  cent.body.velocity.y = cent.centSpeed * cent.directionY;
+  //cent.body.velocity.y = rowHeight; //alternative if centipede seems to go...
+  //...too fast & overshoots the "single row change"
+  /*console.log("centDirectionY :: " + cent.directionY + "spd" + speed);
+  console.log("y" + cent.body.velocity.y);*/
 }
 
 function hitWallY(cent, wall){
   if(wall){
-    console.log("hitY :: WALL ID " + wall.idType); //AEW test
-    cent.directionY *= -1;
+    //console.log("hitY :: WALL ID " + wall.idType); //AEW test
+    cent.directionY *= -1; //unlike when we encounter X boundaries, we change...
+    //the vertical direction (up or down) only if we encounter the world's edge
   }
-  console.log("Hit a wall Y; " + cent.y + " ...change to X?");
+  //console.log("Hit a wall Y; " + cent.y + " ...change to X?");
   cent.moveVertically = false;
   cent.animations.play('move');
-  console.log("old y dir:: " + cent.directionY);
-  console.log("new y dir:: " + cent.directionY);
-  console.log(" SWTCH attempt move x");
-  cent.body.velocity.x = cent.iSpeed * cent.direction;
+  //console.log("old y dir:: " + cent.directionY);
+  //console.log("new y dir:: " + cent.directionY);
+  //console.log(" SWTCH attempt move x");
+  cent.body.velocity.x = cent.centSpeed * cent.direction;
   cent.body.velocity.y = 0;
-  console.log("centDirectionX :: " + cent.direction + "spd" + speed);
-  console.log("x" + cent.body.velocity.x);
-  console.log(cent.numberG);
+  //console.log("centDirectionX :: " + cent.direction + "spd" + speed);
+  //console.log("x" + cent.body.velocity.x);
 }
 
 function moveCentipede(cent){
@@ -599,9 +632,12 @@ function moveCentipede(cent){
   //ie if a centipede gets stuck in a place, we can get it unstuck
   //or modify the speed
   //or whatever we want!
+
+  //for now, is only responsible for checking if we've moved veritcally one row
+  //and changes direction if so.
   if(cent.moveVertically){
-    if (Math.abs(cent.y - cent.lastY) >= rowHeight){
-      cent.moveVertically = false;
+    if (Math.abs(cent.y - cent.lastY) > rowHeight){
+      hitWallY(cent, null);
     }
   }
 }
@@ -640,7 +676,7 @@ function boltHitsMushroom (bolt, mushroom) {
   mushroom.hits += 1;
   if (mushroom.hits >= 4){
     mushroom.kill();
-    score += 1; //added by AEW
+    refreshScore(1); //added by AEW
   }
   else {
     mushroom.loadTexture('atlas', 'mushroom0' + mushroom.hits);
@@ -648,22 +684,22 @@ function boltHitsMushroom (bolt, mushroom) {
 }
 
 function boltHitsFlea(){
-  score += 500;
+  refreshScore(500);
   fleaDies();
 }
 
 function shootBugger(player, creature){
-  score += 1000;
+  refreshScore(1000);
   creature.kill();
 }
 
 function boltHitsScorpion(){
-  score += 1000;
+  refreshScore(1000);
   scorpionDies();
 }
 
 function boltHitsSpider(){
-  score += 900;
+  refreshScore(900);
   spiderDies();
 }
 
@@ -674,7 +710,30 @@ function boltHitsSpider(){
 // but everything gets its own unique direction, determined by whether it
 // is trailing or not
 
-function boltHitsCentipedeBodySegment(bolt, centipedeSeg){
+function pauseCent(){
+  centipedes.forEachAlive(pushCentVelocityAndZero);
+}
+
+function resumeCent(){
+  centipedes.forEachAlive(popCentVelocity);
+}
+
+//push velocity values onto centipede segment internal stack
+//and zero velocity values of segment to stop movement
+function pushCentVelocityAndZero(centSeg){
+  centSeg.oldVelX = centSeg.body.velocity.x;
+  centSeg.oldVelY = centSeg.body.velocity.y;
+  centSeg.body.velocity.x = 0;
+  centSeg.body.velocity.y = 0;
+}
+
+//pop velocity values from centipede segment internal stage
+function popCentVelocity(centSeg){
+  centSeg.body.velocity.x = centSeg.oldVelX;
+  centSeg.body.velocity.y = centSeg.oldVelY;
+}
+
+function boltHitsCentipede(bolt, centSeg){
   //get rid of the body segment at that location
   //spawn a mushroom at the location
   //head to that body segment continues on
@@ -682,10 +741,58 @@ function boltHitsCentipedeBodySegment(bolt, centipedeSeg){
   //tail end of centipede reverses direction
   //start of tail end changes to head graphics
   //so we will probably need a quick n dirty split() function
+  pauseCent();
+
+  console.log(centSeg.idName);
+
+  if(centSeg.segAhead != null){
+    console.log(centSeg.segAhead.idName + "segAheadID");
+    if(centSeg.segBehind != null){
+      //this segment is between two other segments
+      console.log(centSeg.segBehind.idName + "segBehindID DOING INNER SEG");
+      hitCentInnerSegment(centSeg);
+    }
+    else{
+      //this segment is the tail...
+      hitCentOuterSegment(centSeg, false);
+    }
+  }
+  else if(centSeg.segBehind != null){
+    //then there is no segment ahead, and there is a segment behind
+    //so this acts as the head
+    hitCentOuterSegment(centSeg, true);
+  }
+  else{
+    //this is a lone body part that can disappear
+    killCentipedeSegment(centSeg);
+  }
+  bolt.kill();
+  resumeCent();
+
 }
 
-function boltHitsCentipedeHeadTail(bolt, centipedeSeg){
+function hitCentInnerSegment(centSeg){
+  console.log("Inner segment detected!");
+  spawnSingleMushroom(centSeg.x, centSeg.y);
+  centSeg.segAhead.segBehind = null;
+  centSeg.segBehind.segAhead = null;
+  killCentipedeSegment(centSeg);
+}
+
+function hitCentOuterSegment(centSeg, isHead){
   //delete the old head or old tail and make nearest neighbor new head/tail
+  if(isHead){
+    centSeg.segBehind.segAhead = null;
+  }
+  else {
+    centSeg.segAhead.segBehind = null;
+  }
+  killCentipedeSegment(centSeg);
+}
+
+function killCentipedeSegment(centSeg){
+  centSeg.alive = false;
+  centSeg.kill(); //update with explosion animation
 }
 
 function centipedeHitsPoisonedMushroom(cent, poisonedMushroom){
@@ -693,26 +800,13 @@ function centipedeHitsPoisonedMushroom(cent, poisonedMushroom){
 }
 
 function centipedeHitsMushroom(cent, mushroom){
-  console.log("Centipede encountered mushroom!");
+  /*console.log("Centipede encountered mushroom!");*/
   if (cent.moveVertically){
     hitWallY(cent, null);
   }
   else{
     hitWallX(cent, null);
   }
-}
-
-//for east-west bound
-function centipedeHitsEWBound(cent, mushroom){
-  //drop by one row
-  //reverse direction
-  //centipede.kill();
-}
-
-//for north-south bound
-function centipedeHitsBottomBounds(cent){
-  //spawn fast heads until centipede death
-
 }
 
 function scorpionHitsMushroom(scorpion, mushroom){
